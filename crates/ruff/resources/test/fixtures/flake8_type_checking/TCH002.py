@@ -172,3 +172,31 @@ def f():
     from module import Member
 
     x: Member = 1
+
+
+def f():
+    from pandas import DataFrame
+
+    def baz() -> DataFrame:
+        ...
+
+
+def f():
+    from pandas import DataFrame
+
+    def baz() -> DataFrame[int]:
+        ...
+
+
+def f():
+    from pandas import DataFrame
+
+    def baz() -> DataFrame["int"]:
+        ...
+
+
+def f():
+    import pandas as pd
+
+    def baz() -> pd.DataFrame:
+        ...

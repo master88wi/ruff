@@ -3,11 +3,13 @@ use std::borrow::Cow;
 use anyhow::Result;
 use rustc_hash::FxHashMap;
 
-use ruff_diagnostics::{AutofixKind, Diagnostic, DiagnosticKind, Fix, Violation};
+use ruff_diagnostics::{AutofixKind, Diagnostic, DiagnosticKind, Edit, Fix, Violation};
 use ruff_macros::{derive_message_formats, violation};
 use ruff_python_ast::Ranged;
+use ruff_python_codegen::Stylist;
 use ruff_python_semantic::{AnyImport, Binding, Imported, ResolvedReferenceId, Scope, StatementId};
-use ruff_text_size::TextRange;
+use ruff_source_file::Locator;
+use ruff_text_size::{TextLen, TextRange, TextSize};
 
 use crate::autofix;
 use crate::checkers::ast::Checker;
@@ -254,13 +256,19 @@ pub(crate) fn typing_only_runtime_import(
         };
 
         if binding.context.is_runtime()
-            && binding.references().all(|reference_id| {
-                checker
-                    .semantic()
-                    .reference(reference_id)
-                    .context()
-                    .is_typing()
-            })
+            && binding
+                .references()
+                .map(|reference_id| checker.semantic().reference(reference_id))
+                .all(|reference| {
+                    // All references should be in a typing context _or_ a runtime-evaluated
+                    // annotation (as opposed to a runtime-required annotation), which we can
+                    // quote.
+                    reference.in_type_checking_block()
+                        || reference.in_typing_only_annotation()
+                        || reference.in_runtime_evaluated_annotation()
+                        || reference.in_complex_string_type_definition()
+                        || reference.in_simple_string_type_definition()
+                })
         {
             let qualified_name = import.qualified_name();
 
@@ -309,6 +317,7 @@ pub(crate) fn typing_only_runtime_import(
             let import = ImportBinding {
                 import,
                 reference_id,
+                binding,
                 range: binding.range(),
                 parent_range: binding.parent_range(checker.semantic()),
             };
@@ -383,6 +392,8 @@ pub(crate) fn typing_only_runtime_import(
 struct ImportBinding<'a> {
     /// The qualified name of the import (e.g., `typing.List` for `from typing import List`).
     import: AnyImport<'a>,
+    /// The binding for the imported symbol.
+    binding: &'a Binding<'a>,
     /// The first reference to the imported symbol.
     reference_id: ResolvedReferenceId,
     /// The trimmed range of the import (e.g., `List` in `from typing import List`).
@@ -489,8 +500,98 @@ fn fix_imports(
         checker.source_type,
     )?;
 
-    Ok(
-        Fix::suggested_edits(remove_import_edit, add_import_edit.into_edits())
-            .isolate(checker.parent_isolation()),
+    // Step 3) Quote any runtime usages of the referenced symbol.
+    let quote_reference_edits = imports.iter().flat_map(|ImportBinding { binding, .. }| {
+        binding.references.iter().filter_map(|reference_id| {
+            let reference = checker.semantic().reference(*reference_id);
+            if reference.context().is_runtime() {
+                Some(quote_annotation(
+                    reference.range(),
+                    checker.locator(),
+                    checker.stylist(),
+                ))
+            } else {
+                None
+            }
+        })
+    });
+
+    Ok(Fix::suggested_edits(
+        remove_import_edit,
+        add_import_edit
+            .into_edits()
+            .into_iter()
+            .chain(quote_reference_edits),
     )
+    .isolate(checker.parent_isolation()))
+}
+
+/// Quote a type annotation.
+///
+/// This requires more than wrapping the reference in quotes. For example:
+/// - When quoting `Series` in `Series[pd.Timestamp]`, we want `"Series[pd.Timestamp]"`.
+/// - When quoting `kubernetes` in `kubernetes.SecurityContext`, we want `"kubernetes.SecurityContext"`.
+/// - When quoting `Series` in `Series["pd.Timestamp"]`, we want `"Series[pd.Timestamp]"`.
+fn quote_annotation(range: TextRange, locator: &Locator, stylist: &Stylist) -> Edit {
+    // Expand the annotation to the end of the reference.
+    let mut depth = 0u32;
+    let mut len = TextSize::default();
+    let mut annotation = String::with_capacity(range.len().into());
+    for c in locator.after(range.start()).chars() {
+        match c {
+            '[' => depth += 1,
+            ']' => {
+                // Ex) Quoting `int` in `DataFrame[int]`, which should expand until the end of the
+                // `int` symbol`.
+                if depth == 0 {
+                    break;
+                }
+
+                depth -= 1;
+
+                // Ex) Quoting `DataFrame` in `DataFrame[int]`, which should expand until the end
+                // of the subscript.
+                if depth == 0 {
+                    annotation.push(c);
+                    len += c.text_len();
+                    break;
+                }
+            }
+            '.' => {
+                // Expand attributes.
+            }
+            'a'..='z' | 'A'..='Z' | '_' | '0'..='9' => {
+                // Expand identifiers.
+            }
+            '"' | '\'' => {
+                // Skip quotes.
+                // TODO(charlie): Retain escaped quotes, and quotes in literals.
+                len += c.text_len();
+                continue;
+            }
+            '\n' | '\r' if depth > 0 => {
+                // If we hit a newline, fallback to replacing the range. This can be ugly, but is
+                // better than not quoting at all.
+                let annotation = locator.slice(range);
+                let quote = stylist.quote();
+                let annotation = format!("{quote}{annotation}{quote}");
+                return Edit::range_replacement(annotation, range);
+            }
+            _ => {
+                // If we hit a space, or a parenthesis, or any other character (and we're not in
+                // a subscript), we're done.
+                if depth == 0 {
+                    break;
+                }
+            }
+        }
+        annotation.push(c);
+        len += c.text_len();
+    }
+
+    // Wrap in quotes.
+    let quote = stylist.quote();
+    let annotation = format!("{quote}{annotation}{quote}");
+
+    Edit::range_replacement(annotation, TextRange::at(range.start(), len))
 }

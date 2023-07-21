@@ -78,7 +78,7 @@ impl Default for Settings {
     fn default() -> Self {
         Self {
             strict: false,
-            exempt_modules: vec!["typing".to_string()],
+            exempt_modules: vec!["typing".to_string(), "typing_extensions".to_string()],
             runtime_evaluated_base_classes: vec![],
             runtime_evaluated_decorators: vec![],
         }
@@ -91,7 +91,7 @@ impl From<Options> for Settings {
             strict: options.strict.unwrap_or(false),
             exempt_modules: options
                 .exempt_modules
-                .unwrap_or_else(|| vec!["typing".to_string()]),
+                .unwrap_or_else(|| vec!["typing".to_string(), "typing_extensions".to_string()]),
             runtime_evaluated_base_classes: options
                 .runtime_evaluated_base_classes
                 .unwrap_or_default(),

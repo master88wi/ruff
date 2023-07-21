@@ -10,31 +10,40 @@ pub(crate) fn is_valid_runtime_import(binding: &Binding, semantic: &SemanticMode
         binding.context.is_runtime()
             && binding
                 .references()
-                .any(|reference_id| semantic.reference(reference_id).context().is_runtime())
+                .map(|reference_id| semantic.reference(reference_id))
+                .any(|reference| {
+                    // This is like: typing context _or_ a runtime-required type annotation (since
+                    // we're willing to quote it).
+                    !(reference.in_type_checking_block()
+                        || reference.in_typing_only_annotation()
+                        || reference.in_runtime_evaluated_annotation()
+                        || reference.in_complex_string_type_definition()
+                        || reference.in_simple_string_type_definition())
+                })
     } else {
         false
     }
 }
 
-pub(crate) fn runtime_evaluated(
+pub(crate) fn runtime_required(
     base_classes: &[String],
     decorators: &[String],
     semantic: &SemanticModel,
 ) -> bool {
     if !base_classes.is_empty() {
-        if runtime_evaluated_base_class(base_classes, semantic) {
+        if runtime_required_base_class(base_classes, semantic) {
             return true;
         }
     }
     if !decorators.is_empty() {
-        if runtime_evaluated_decorators(decorators, semantic) {
+        if runtime_required_decorators(decorators, semantic) {
             return true;
         }
     }
     false
 }
 
-fn runtime_evaluated_base_class(base_classes: &[String], semantic: &SemanticModel) -> bool {
+fn runtime_required_base_class(base_classes: &[String], semantic: &SemanticModel) -> bool {
     let ScopeKind::Class(class_def) = &semantic.current_scope().kind else {
         return false;
     };
@@ -48,7 +57,7 @@ fn runtime_evaluated_base_class(base_classes: &[String], semantic: &SemanticMode
     })
 }
 
-fn runtime_evaluated_decorators(decorators: &[String], semantic: &SemanticModel) -> bool {
+fn runtime_required_decorators(decorators: &[String], semantic: &SemanticModel) -> bool {
     let ScopeKind::Class(class_def) = &semantic.current_scope().kind else {
         return false;
     };

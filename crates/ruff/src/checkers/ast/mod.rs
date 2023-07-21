@@ -492,7 +492,7 @@ where
                 {
                     if let Some(expr) = &parameter_with_default.parameter.annotation {
                         if runtime_annotation {
-                            self.visit_runtime_annotation(expr);
+                            self.visit_runtime_evaluated_annotation(expr);
                         } else {
                             self.visit_annotation(expr);
                         };
@@ -504,7 +504,7 @@ where
                 if let Some(arg) = &parameters.vararg {
                     if let Some(expr) = &arg.annotation {
                         if runtime_annotation {
-                            self.visit_runtime_annotation(expr);
+                            self.visit_runtime_evaluated_annotation(expr);
                         } else {
                             self.visit_annotation(expr);
                         };
@@ -513,7 +513,7 @@ where
                 if let Some(arg) = &parameters.kwarg {
                     if let Some(expr) = &arg.annotation {
                         if runtime_annotation {
-                            self.visit_runtime_annotation(expr);
+                            self.visit_runtime_evaluated_annotation(expr);
                         } else {
                             self.visit_annotation(expr);
                         };
@@ -521,7 +521,7 @@ where
                 }
                 for expr in returns {
                     if runtime_annotation {
-                        self.visit_runtime_annotation(expr);
+                        self.visit_runtime_evaluated_annotation(expr);
                     } else {
                         self.visit_annotation(expr);
                     };
@@ -652,38 +652,60 @@ where
                 value,
                 ..
             }) => {
-                // If we're in a class or module scope, then the annotation needs to be
-                // available at runtime.
-                // See: https://docs.python.org/3/reference/simple_stmts.html#annotated-assignment-statements
-                let runtime_annotation = if self.semantic.future_annotations() {
-                    if self.semantic.current_scope().kind.is_class() {
-                        let baseclasses = &self
-                            .settings
-                            .flake8_type_checking
-                            .runtime_evaluated_base_classes;
-                        let decorators = &self
-                            .settings
-                            .flake8_type_checking
-                            .runtime_evaluated_decorators;
-                        flake8_type_checking::helpers::runtime_evaluated(
+                enum AnnotationKind {
+                    RuntimeRequired,
+                    RuntimeEvaluated,
+                    TypingOnly,
+                }
+
+                fn annotation_kind(
+                    semantic: &SemanticModel,
+                    settings: &Settings,
+                ) -> AnnotationKind {
+                    // If the annotation is in a class, and that class is marked as
+                    // runtime-evaluated, treat the annotation as runtime-required.
+                    // TODO(charlie): We could also include function calls here.
+                    if semantic.current_scope().kind.is_class() {
+                        let baseclasses =
+                            &settings.flake8_type_checking.runtime_evaluated_base_classes;
+                        let decorators =
+                            &settings.flake8_type_checking.runtime_evaluated_decorators;
+                        if flake8_type_checking::helpers::runtime_required(
                             baseclasses,
                             decorators,
-                            &self.semantic,
-                        )
-                    } else {
-                        false
+                            semantic,
+                        ) {
+                            return AnnotationKind::RuntimeRequired;
+                        }
                     }
-                } else {
-                    matches!(
-                        self.semantic.current_scope().kind,
-                        ScopeKind::Class(_) | ScopeKind::Module
-                    )
-                };
 
-                if runtime_annotation {
-                    self.visit_runtime_annotation(annotation);
-                } else {
-                    self.visit_annotation(annotation);
+                    // If `__future__` annotations are enabled, then annotations are never evaluated
+                    // at runtime, so we can treat them as typing-only.
+                    if semantic.future_annotations() {
+                        return AnnotationKind::TypingOnly;
+                    }
+
+                    // Otherwise, if we're in a class or module scope, then the annotation needs to
+                    // be available at runtime.
+                    // See: https://docs.python.org/3/reference/simple_stmts.html#annotated-assignment-statements
+                    if matches!(
+                        semantic.current_scope().kind,
+                        ScopeKind::Class(_) | ScopeKind::Module
+                    ) {
+                        return AnnotationKind::RuntimeEvaluated;
+                    }
+
+                    AnnotationKind::TypingOnly
+                }
+
+                match annotation_kind(&self.semantic, self.settings) {
+                    AnnotationKind::RuntimeRequired => {
+                        self.visit_runtime_required_annotation(annotation);
+                    }
+                    AnnotationKind::RuntimeEvaluated => {
+                        self.visit_runtime_evaluated_annotation(annotation);
+                    }
+                    AnnotationKind::TypingOnly => self.visit_annotation(annotation),
                 }
                 if let Some(expr) = value {
                     if self.semantic.match_typing_expr(annotation, "TypeAlias") {
@@ -1479,10 +1501,18 @@ impl<'a> Checker<'a> {
         self.semantic.flags = snapshot;
     }
 
-    /// Visit an [`Expr`], and treat it as a runtime-required type annotation.
-    fn visit_runtime_annotation(&mut self, expr: &'a Expr) {
+    /// Visit an [`Expr`], and treat it as a runtime-evaluated type annotation.
+    fn visit_runtime_evaluated_annotation(&mut self, expr: &'a Expr) {
         let snapshot = self.semantic.flags;
-        self.semantic.flags |= SemanticModelFlags::RUNTIME_ANNOTATION;
+        self.semantic.flags |= SemanticModelFlags::RUNTIME_EVALUATED_ANNOTATION;
+        self.visit_type_definition(expr);
+        self.semantic.flags = snapshot;
+    }
+
+    /// Visit an [`Expr`], and treat it as a runtime-required type annotation.
+    fn visit_runtime_required_annotation(&mut self, expr: &'a Expr) {
+        let snapshot = self.semantic.flags;
+        self.semantic.flags |= SemanticModelFlags::RUNTIME_REQUIRED_ANNOTATION;
         self.visit_type_definition(expr);
         self.semantic.flags = snapshot;
     }
