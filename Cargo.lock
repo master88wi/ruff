@@ -870,6 +870,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "getopts"
+version = "0.2.21"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "14dbbfd5c71d70241ecf9e6f13737f7b5ce823821063188d7e46c41d371eebd5"
+dependencies = [
+ "unicode-width",
+]
+
+[[package]]
 name = "getrandom"
 version = "0.2.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2127,7 +2136,7 @@ dependencies = [
  "toml",
  "typed-arena",
  "unicode-width",
- "unicode_names2 0.6.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "unicode_names2 1.0.0",
  "wsl",
 ]
 
@@ -2402,7 +2411,7 @@ dependencies = [
  "tiny-keccak",
  "unic-emoji-char",
  "unic-ucd-ident",
- "unicode_names2 0.6.0 (git+https://github.com/youknowone/unicode_names2.git?rev=4ce16aa85cbcdd9cc830410f1a72ef9a235f2fde)",
+ "unicode_names2 0.6.0",
 ]
 
 [[package]]
@@ -3297,15 +3306,30 @@ checksum = "f962df74c8c05a667b5ee8bcf162993134c104e96440b663c8daa176dc772d8c"
 [[package]]
 name = "unicode_names2"
 version = "0.6.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "446c96c6dd42604779487f0a981060717156648c1706aa1f464677f03c6cc059"
-
-[[package]]
-name = "unicode_names2"
-version = "0.6.0"
 source = "git+https://github.com/youknowone/unicode_names2.git?rev=4ce16aa85cbcdd9cc830410f1a72ef9a235f2fde#4ce16aa85cbcdd9cc830410f1a72ef9a235f2fde"
 dependencies = [
  "phf",
+]
+
+[[package]]
+name = "unicode_names2"
+version = "1.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e7d472cda5258db9868b0125976db65f0a3f197ed86b62c6982bfba7815eb499"
+dependencies = [
+ "unicode_names2_generator",
+]
+
+[[package]]
+name = "unicode_names2_generator"
+version = "1.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f7d0eca6cab3b00e3a9737b5ab3a3245336f4183af52a5a57ba026c2c6575d5b"
+dependencies = [
+ "getopts",
+ "log",
+ "rand",
+ "time 0.3.22",
 ]
 
 [[package]]
