@@ -1219,4 +1219,11 @@ a = 1
             "IPython escape commands are only allowed in Jupyter mode at byte offset 6".to_string()
         );
     }
+
+    #[test]
+    fn test_unicode_aliases() {
+        // https://github.com/RustPython/RustPython/issues/4566
+        let parse_ast = parse_suite(r#"x = "\N{BACKSPACE}another cool trick""#, "<test>").unwrap();
+        insta::assert_debug_snapshot!(parse_ast);
+    }
 }
