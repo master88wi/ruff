@@ -355,6 +355,17 @@ impl Format<IrFormatContext<'_>> for &[FormatElement] {
                     write!(f, [text(")")])?;
                 }
 
+                FormatElement::GroupMode { id, mode } => write!(
+                    f,
+                    [
+                        text("group_mode("),
+                        dynamic_text(&std::format!("{id:?}"), None),
+                        text(", "),
+                        dynamic_text(&std::format!("{mode:?}"), None),
+                        text(")")
+                    ]
+                )?,
+
                 FormatElement::Interned(interned) => {
                     let interned_elements = &mut f.context_mut().printed_interned_elements;
 

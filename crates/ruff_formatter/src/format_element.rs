@@ -8,7 +8,7 @@ use std::rc::Rc;
 
 use crate::format_element::tag::{GroupMode, LabelId, Tag};
 use crate::source_code::SourceCodeSlice;
-use crate::TagKind;
+use crate::{GroupId, TagKind};
 use ruff_text_size::TextSize;
 
 /// Language agnostic IR for formatting source code.
@@ -31,7 +31,9 @@ pub enum FormatElement {
     SourcePosition(TextSize),
 
     /// Token constructed by the formatter from a static string
-    StaticText { text: &'static str },
+    StaticText {
+        text: &'static str,
+    },
 
     /// Token constructed from the input source as a dynamic
     /// string.
@@ -54,6 +56,11 @@ pub enum FormatElement {
     /// An interned format element. Useful when the same content must be emitted multiple times to avoid
     /// deep cloning the IR when using the `best_fitting!` macro or `if_group_fits_on_line` and `if_group_breaks`.
     Interned(Interned),
+
+    GroupMode {
+        id: GroupId,
+        mode: PrintMode,
+    },
 
     /// A list of different variants representing the same content. The printer picks the best fitting content.
     /// Line breaks inside of a best fitting don't propagate to parent groups.
@@ -92,6 +99,9 @@ impl std::fmt::Debug for FormatElement {
                 .field("variants", variants)
                 .field("mode", &mode)
                 .finish(),
+            FormatElement::GroupMode { id, mode } => {
+                fmt.debug_tuple("GroupMode").field(id).field(mode).finish()
+            }
             FormatElement::Interned(interned) => fmt.debug_list().entries(&**interned).finish(),
             FormatElement::Tag(tag) => fmt.debug_tuple("Tag").field(tag).finish(),
             FormatElement::SourcePosition(position) => {
@@ -275,6 +285,7 @@ impl FormatElements for FormatElement {
             FormatElement::LineSuffixBoundary
             | FormatElement::Space
             | FormatElement::Tag(_)
+            | FormatElement::GroupMode { .. }
             | FormatElement::SourcePosition(_) => false,
         }
     }
