@@ -15,6 +15,7 @@ use ruff::settings::{flags, CliSettings};
 use ruff::{fs, warn_user_once};
 
 use crate::args::{Args, CheckCommand, Command, FormatCommand};
+use crate::commands::lsp::lsp;
 use crate::printer::{Flags as PrinterFlags, Printer};
 
 pub mod args;
@@ -159,6 +160,7 @@ quoting the executed command, along with the relevant file contents and `pyproje
         }
         Command::Check(args) => check(args, log_level),
         Command::Format(args) => format(args, log_level),
+        Command::Lsp(args) => lsp(args, log_level),
     }
 }
 
