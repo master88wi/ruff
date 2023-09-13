@@ -3,7 +3,7 @@
 
 use ruff_python_ast::Stmt;
 use ruff_python_parser::lexer::LexResult;
-use ruff_python_parser::{StringKind, Tok};
+use ruff_python_parser::Tok;
 use ruff_python_trivia::{has_leading_content, has_trailing_content, is_python_whitespace};
 use ruff_source_file::Locator;
 use ruff_text_size::{Ranged, TextRange, TextSize};
@@ -33,6 +33,10 @@ impl Indexer {
         let mut continuation_lines = Vec::new();
         let mut triple_quoted_string_ranges = Vec::new();
         let mut f_string_ranges = Vec::new();
+        // Range for the first f-string start token in a f-string that could
+        // potentially contain nested f-strings.
+        let mut first_f_string_start_range = None;
+        let mut f_string_start_count = 0u32;
         // Token, end
         let mut prev_end = TextSize::default();
         let mut prev_token: Option<&Tok> = None;
@@ -68,17 +72,32 @@ impl Indexer {
                 Tok::Newline | Tok::NonLogicalNewline => {
                     line_start = range.end();
                 }
+                Tok::FStringStart => {
+                    f_string_start_count += 1;
+                    if f_string_start_count == 1 {
+                        first_f_string_start_range = Some(*range);
+                    }
+                }
+                Tok::FStringEnd => {
+                    // This is always going to be > 0, because the lexer will only
+                    // emit the end token if there was a start token to begin with.
+                    f_string_start_count -= 1;
+                    if f_string_start_count == 0 {
+                        if let Some(start_range) = first_f_string_start_range.take() {
+                            let f_string_range = TextRange::new(start_range.start(), range.end());
+                            f_string_ranges.push(f_string_range);
+
+                            if matches!(locator.slice(range), "'''" | r#"""""#) {
+                                triple_quoted_string_ranges.push(f_string_range);
+                            }
+                        }
+                    }
+                }
                 Tok::String {
                     triple_quoted: true,
                     ..
                 } => {
                     triple_quoted_string_ranges.push(*range);
-                }
-                Tok::String {
-                    kind: StringKind::FString | StringKind::RawFString,
-                    ..
-                } => {
-                    f_string_ranges.push(*range);
                 }
                 _ => {}
             }
@@ -412,5 +431,55 @@ import os
                 TextRange::new(TextSize::from(98), TextSize::from(161))
             ]
         );
+    }
+
+    #[test]
+    fn test_f_string_ranges() {
+        let contents = r#"
+f"normal f-string"
+f"start {f"inner {f"another"}"} end"
+f"implicit " f"concatenation"
+"#
+        .trim();
+        let lxr: Vec<LexResult> = lexer::lex(contents, Mode::Module).collect();
+        let indexer = Indexer::from_tokens(lxr.as_slice(), &Locator::new(contents));
+        assert!(indexer.triple_quoted_string_ranges.is_empty());
+        assert_eq!(
+            indexer.f_string_ranges,
+            &[
+                TextRange::new(TextSize::from(0), TextSize::from(18)),
+                TextRange::new(TextSize::from(19), TextSize::from(55)),
+                TextRange::new(TextSize::from(56), TextSize::from(68)),
+                TextRange::new(TextSize::from(69), TextSize::from(85)),
+            ]
+        );
+    }
+
+    #[test]
+    fn test_triple_quoted_f_string_ranges() {
+        let contents = r#"
+f"""
+this is one
+multiline f-string
+"""
+f'''
+and this is
+another
+'''
+f"""
+this is a {f"""nested multiline
+f-string"""}
+"""
+"#
+        .trim();
+        let lxr: Vec<LexResult> = lexer::lex(contents, Mode::Module).collect();
+        let indexer = Indexer::from_tokens(lxr.as_slice(), &Locator::new(contents));
+        let ranges = &[
+            TextRange::new(TextSize::from(0), TextSize::from(39)),
+            TextRange::new(TextSize::from(40), TextSize::from(68)),
+            TextRange::new(TextSize::from(69), TextSize::from(122)),
+        ];
+        assert_eq!(indexer.f_string_ranges, ranges);
+        assert_eq!(indexer.triple_quoted_string_ranges, ranges);
     }
 }
