@@ -57,6 +57,7 @@ pub struct Settings {
 
     pub target_version: PythonVersion,
     pub preview: PreviewMode,
+    pub explicit_preview_rules: bool,
 
     // Resolver settings
     pub exclude: FilePatternSet,

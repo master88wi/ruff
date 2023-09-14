@@ -9,7 +9,7 @@ use super::Settings;
 use crate::codes::{self, RuleCodePrefix};
 use crate::line_width::{LineLength, TabSize};
 use crate::registry::Linter;
-use crate::rule_selector::RuleSelector;
+use crate::rule_selector::{PreviewOptions, RuleSelector};
 use crate::rules::{
     flake8_annotations, flake8_bandit, flake8_bugbear, flake8_builtins, flake8_comprehensions,
     flake8_copyright, flake8_errmsg, flake8_gettext, flake8_implicit_str_concat,
@@ -75,7 +75,7 @@ impl Default for Settings {
         Self {
             rules: PREFIXES
                 .iter()
-                .flat_map(|selector| selector.rules(PreviewMode::default()))
+                .flat_map(|selector| selector.rules(&PreviewOptions::default()))
                 .collect(),
             allowed_confusables: FxHashSet::from_iter([]),
             builtins: vec![],
@@ -91,6 +91,7 @@ impl Default for Settings {
             logger_objects: vec![],
             namespace_packages: vec![],
             preview: PreviewMode::default(),
+            explicit_preview_rules: false,
             per_file_ignores: vec![],
             project_root: path_dedot::CWD.clone(),
             respect_gitignore: true,

@@ -20,7 +20,7 @@ use regex::Regex;
 use ruff::line_width::{LineLength, TabSize};
 use ruff::registry::RuleNamespace;
 use ruff::registry::{Rule, RuleSet, INCOMPATIBLE_CODES};
-use ruff::rule_selector::Specificity;
+use ruff::rule_selector::{PreviewOptions, Specificity};
 use ruff::settings::rule_table::RuleTable;
 use ruff::settings::types::{
     FilePattern, FilePatternSet, PerFileIgnore, PreviewMode, PythonVersion, SerializationFormat,
@@ -69,6 +69,7 @@ pub struct Configuration {
     pub logger_objects: Option<Vec<String>>,
     pub namespace_packages: Option<Vec<PathBuf>>,
     pub preview: Option<PreviewMode>,
+    pub explicit_preview_rules: Option<bool>,
     pub required_version: Option<Version>,
     pub respect_gitignore: Option<bool>,
     pub show_fixes: Option<bool>,
@@ -177,6 +178,7 @@ impl Configuration {
             }),
             logger_objects: self.logger_objects.unwrap_or_default(),
             preview: self.preview.unwrap_or_default(),
+            explicit_preview_rules: self.explicit_preview_rules.unwrap_or_default(),
             typing_modules: self.typing_modules.unwrap_or_default(),
             // Plugins
             flake8_annotations: self
@@ -391,6 +393,7 @@ impl Configuration {
                 .map(|namespace_package| resolve_src(&namespace_package, project_root))
                 .transpose()?,
             preview: options.preview.map(PreviewMode::from),
+            explicit_preview_rules: options.explicit_preview_rules,
             per_file_ignores: options.per_file_ignores.map(|per_file_ignores| {
                 per_file_ignores
                     .into_iter()
@@ -440,16 +443,19 @@ impl Configuration {
     }
 
     pub fn as_rule_table(&self) -> RuleTable {
-        let preview = self.preview.unwrap_or_default();
+        let preview = PreviewOptions {
+            mode: self.preview.unwrap_or_default(),
+            require_explicit: self.explicit_preview_rules.unwrap_or_default(),
+        };
 
         // The select_set keeps track of which rules have been selected.
         let mut select_set: RuleSet = defaults::PREFIXES
             .iter()
-            .flat_map(|selector| selector.rules(preview))
+            .flat_map(|selector| selector.rules(&preview))
             .collect();
 
         // The fixable set keeps track of which rules are fixable.
-        let mut fixable_set: RuleSet = RuleSelector::All.rules(preview).collect();
+        let mut fixable_set: RuleSet = RuleSelector::All.rules(&preview).collect();
 
         // Ignores normally only subtract from the current set of selected
         // rules.  By that logic the ignore in `select = [], ignore = ["E501"]`
@@ -488,7 +494,7 @@ impl Configuration {
                     .chain(selection.extend_select.iter())
                     .filter(|s| s.specificity() == spec)
                 {
-                    for rule in selector.rules(preview) {
+                    for rule in selector.rules(&preview) {
                         select_map_updates.insert(rule, true);
                     }
                 }
@@ -498,7 +504,7 @@ impl Configuration {
                     .chain(carriedover_ignores.into_iter().flatten())
                     .filter(|s| s.specificity() == spec)
                 {
-                    for rule in selector.rules(preview) {
+                    for rule in selector.rules(&preview) {
                         select_map_updates.insert(rule, false);
                     }
                 }
@@ -510,7 +516,7 @@ impl Configuration {
                     .chain(selection.extend_fixable.iter())
                     .filter(|s| s.specificity() == spec)
                 {
-                    for rule in selector.rules(preview) {
+                    for rule in selector.rules(&preview) {
                         fixable_map_updates.insert(rule, true);
                     }
                 }
@@ -520,7 +526,7 @@ impl Configuration {
                     .chain(carriedover_unfixables.into_iter().flatten())
                     .filter(|s| s.specificity() == spec)
                 {
-                    for rule in selector.rules(preview) {
+                    for rule in selector.rules(&preview) {
                         fixable_map_updates.insert(rule, false);
                     }
                 }
@@ -587,16 +593,16 @@ impl Configuration {
             {
                 #[allow(deprecated)]
                 if matches!(selector, RuleSelector::Nursery) {
-                    let suggestion = if preview.is_disabled() {
+                    let suggestion = if preview.mode.is_disabled() {
                         " Use the `--preview` flag instead."
                     } else {
                         // We have no suggested alternative since there is intentionally no "PREVIEW" selector
                         ""
                     };
                     warn_user_once!("The `NURSERY` selector has been deprecated.{suggestion}");
-                }
+                };
 
-                if preview.is_disabled() {
+                if preview.mode.is_disabled() {
                     if let RuleSelector::Rule { prefix, .. } = selector {
                         if prefix.rules().any(|rule| rule.is_nursery()) {
                             deprecated_nursery_selectors.insert(selector);
@@ -604,7 +610,7 @@ impl Configuration {
                     }
 
                     // Check if the selector is empty because preview mode is disabled
-                    if selector.rules(PreviewMode::Disabled).next().is_none() {
+                    if selector.rules(&PreviewOptions::default()).next().is_none() {
                         ignored_preview_selectors.insert(selector);
                     }
                 }
@@ -722,6 +728,9 @@ impl Configuration {
             src: self.src.or(config.src),
             target_version: self.target_version.or(config.target_version),
             preview: self.preview.or(config.preview),
+            explicit_preview_rules: self
+                .explicit_preview_rules
+                .or(config.explicit_preview_rules),
             task_tags: self.task_tags.or(config.task_tags),
             typing_modules: self.typing_modules.or(config.typing_modules),
             // Plugins

@@ -494,15 +494,27 @@ pub struct Options {
     /// use unstable rules and fixes.
     pub preview: Option<bool>,
     #[option(
-        default = r#"["TODO", "FIXME", "XXX"]"#,
-        value_type = "list[str]",
-        example = r#"task-tags = ["HACK"]"#
+        default = "false",
+        value_type = "bool",
+        example = r#"
+            # Require explicit selection of preview rules
+            explicit-preview-rules = true
+        "#
     )]
+    /// Whether to require exact codes to select preview rules. When enabled,
+    /// preview rules will be be selected by prefixes — the full code of each
+    /// preview rule will be required to enable the rule.
+    pub explicit_preview_rules: Option<bool>,
     /// A list of task tags to recognize (e.g., "TODO", "FIXME", "XXX").
     ///
     /// Comments starting with these tags will be ignored by commented-out code
     /// detection (`ERA`), and skipped by line-length rules (`E501`) if
     /// `ignore-overlong-task-comments` is set to `true`.
+    #[option(
+        default = r#"["TODO", "FIXME", "XXX"]"#,
+        value_type = "list[str]",
+        example = r#"task-tags = ["HACK"]"#
+    )]
     pub task_tags: Option<Vec<String>>,
     #[option(
         default = r#"[]"#,
