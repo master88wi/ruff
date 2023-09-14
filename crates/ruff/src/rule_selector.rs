@@ -199,7 +199,7 @@ impl RuleSelector {
     }
 
     /// Returns rules matching the selector, taking into account preview options enabled.
-    pub fn rules<'a, 'b>(&'a self, preview: &'b PreviewOptions) -> impl Iterator<Item = Rule> + 'a {
+    pub fn rules<'a>(&'a self, preview: &PreviewOptions) -> impl Iterator<Item = Rule> + 'a {
         let preview_enabled = preview.mode.is_enabled();
         let preview_require_explicit = preview.require_explicit;
         #[allow(deprecated)]
